@@ -1,164 +1,234 @@
 # Transformation-Invariance Properties of Grad-CAM in Convolutional Neural Networks
 
-M.Sc. thesis (Computer Science) — Ontario Tech University (University of Ontario
-Institute of Technology), Oshawa, ON, Canada, December 2025.
+---
 
-This repository accompanies the thesis and stores the written document, the defense
-presentation, and the reconstructed research code. Convolutional Neural Networks
-(CNNs) are widely used for image classification, and **Grad-CAM** is a popular
-post-hoc technique for explaining their decisions as visual heatmaps. This work
-studies how reliable those explanations remain when the input image is
-geometrically transformed (rotation, zoom, horizontal/vertical shift), and proposes
-a **realignment-and-averaging framework** that produces robust,
-transformation-invariant heatmaps.
+## 1. Overview
 
-> **Note on the code.** The original experiment code was lost. The modules under
-> `src/`, `experiments/`, and `scripts/` are **reconstructed skeletons** rebuilt
-> from the methodology described in the thesis. They define the intended structure,
-> interfaces, and pipeline stages, with `TODO` markers where the original
-> implementation details should be filled back in. They are a starting point, not a
-> verified reproduction of the published results.
+**Grad-CAM** explains a CNN's prediction by producing a heatmap over the image regions
+that most influence a target class, using the gradients flowing into the final
+convolutional layer. But Grad-CAM is **not transformation-invariant**: rotating,
+zooming, or shifting the same image can noticeably change the heatmap even when the
+prediction stays the same. This project quantifies that instability across three CNN
+backbones and proposes a **realignment-and-averaging framework** that yields rotation-,
+zoom-, and shift-invariant heatmaps — **without retraining the model**.
 
-## What the thesis does
+<p align="center">
+  <img src="assets/fig1_gradcam_examples.png" alt="Grad-CAM examples" width="300">
+  <br><em>Figure 1: Grad-CAM heatmaps for a natural image (top) and a histopathology patch (bottom).</em>
+</p>
 
-- **Models (ImageNet-pretrained, no fine-tuning):** ResNet152, DenseNet201, Xception.
-- **Grad-CAM target layers:** `conv5_block3_out` (ResNet152), `conv5_block32_concat`
-  (DenseNet201), `block14_sepconv2_act` (Xception).
-- **Input sizes:** 224×224 (ResNet152, DenseNet201), 299×299 (Xception).
-- **Datasets:** MS COCO 2017 (natural images, stability evaluation) and CAMELYON16
-  histopathology patches (pixel-level tumor masks, faithfulness evaluation).
-- **Transformations swept:** rotation (−180° to +180°), zoom (0.67× to 1.5×),
-  horizontal shift and vertical shift (up to ±180 px).
-- **Metrics:** Euclidean (L2) difference for heatmap consistency, and AUC-ROC
-  against ground-truth masks for faithfulness.
-- **Contribution:** transform-specific *invariant* Grad-CAM variants
-  (Rotation / Zoom / Shift-X / Shift-Y) that transform the input, generate a
-  Grad-CAM heatmap, warp the heatmap back to the canonical frame, and average across
-  the sweep to suppress transformation-induced variance.
+## 2. Research Objectives
 
-## Repository structure
+- Quantify Grad-CAM's sensitivity to rotation, zoom, and horizontal/vertical shifts.
+- Build a pipeline that inverse-realigns and averages heatmaps across transformed views.
+- Propose rotation-, zoom-, and shift-invariant Grad-CAM variants.
+- Validate across ResNet152, DenseNet201, and Xception.
+- Evaluate both qualitatively and quantitatively (L2, AUC-ROC).
+
+## 3. Research Questions
+
+- **RQ1** — How sensitive is Grad-CAM to common spatial transforms?
+- **RQ2** — Can that sensitivity be reliably quantified (L2, AUC-ROC)?
+- **RQ3** — Can inverse realignment + averaging improve invariance?
+- **RQ4** — Do architectures differ in robustness?
+- **RQ5** — Does the approach generalize to natural *and* medical images?
+
+## 4. Methodology
+
+Every transformation family follows the same recipe: **transform** the input,
+compute **Grad-CAM**, **inverse-transform** the heatmap back to the original frame,
+and **average** the aligned maps into a single invariant explanation.
+
+### 4.1 Rotation-Invariant Grad-CAM
+
+Rotate by $\theta_i \in [-180^\circ, +180^\circ]$ in $30^\circ$ steps, compute
+Grad-CAM, rotate the map back by $-\theta_i$, and average:
+
+$$H_{rot\text{-}inv} = \frac{1}{N_\theta}\sum_{i=1}^{N_\theta} \text{Rotate}\big(\text{GradCAM}(\text{Rotate}(I_{orig}, \theta_i)),\, -\theta_i\big)$$
+
+<p align="center">
+  <img src="assets/fig4_rotation_invariant.jpg" alt="Rotation-invariant Grad-CAM" width="900">
+  <br><em>Figure 2: Rotation-Invariant Grad-CAM workflow.</em>
+</p>
+
+### 4.2 Zoom-Invariant Grad-CAM
+
+Zoom by $Z_i \in \{0.67, \dots, 1.5\}$, compute Grad-CAM, rescale the map to the
+original resolution, and average:
+
+$$H_{zoom\text{-}inv} = \frac{1}{N_z}\sum_{i=1}^{N_z} \text{Zoom}\big(\text{GradCAM}(\text{Zoom}(I_{orig}, Z_i)),\, \text{orig\_size}\big)$$
+
+<p align="center">
+  <img src="assets/fig5_zoom_invariant.jpg" alt="Zoom-invariant Grad-CAM" width="900">
+  <br><em>Figure 3: Zoom-Invariant Grad-CAM workflow.</em>
+</p>
+
+### 4.3 Shift-X-Invariant Grad-CAM
+
+Shift horizontally by $P_x \in [-180, +180]$ px (cyclic roll), compute Grad-CAM,
+shift the map back by $-P_x$, and average:
+
+$$H_{shiftX\text{-}inv} = \frac{1}{N_x}\sum_{x} \text{Shift}_x\big(\text{GradCAM}(\text{Shift}_x(I_{orig}, P_x)),\, -P_x\big)$$
+
+<p align="center">
+  <img src="assets/fig6_shiftx_invariant.jpg" alt="Shift-X-invariant Grad-CAM" width="900">
+  <br><em>Figure 4: Shift-X-Invariant Grad-CAM workflow.</em>
+</p>
+
+### 4.4 Shift-Y-Invariant Grad-CAM
+
+Shift vertically by $P_y \in [-180, +180]$ px (cyclic roll), compute Grad-CAM,
+shift the map back by $-P_y$, and average:
+
+$$H_{shiftY\text{-}inv} = \frac{1}{N_y}\sum_{y} \text{Shift}_y\big(\text{GradCAM}(\text{Shift}_y(I_{orig}, P_y)),\, -P_y\big)$$
+
+<p align="center">
+  <img src="assets/fig7_shifty_invariant.jpg" alt="Shift-Y-invariant Grad-CAM" width="900">
+  <br><em>Figure 5: Shift-Y-Invariant Grad-CAM workflow.</em>
+</p>
+
+### Overall Pipeline
+
+<p align="center">
+  <img src="assets/fig8_single_image_transforms.jpg" alt="All four transformations on a single image" width="950">
+  <br><em>Figure 6: The complete framework — all four transformations (rotation −180° to +180°,
+  zoom 0.67× to 1.5×, and horizontal/vertical shifts ±180 px) applied to a single image,
+  each Grad-CAM map inverse-aligned and averaged into invariant heatmaps.</em>
+</p>
+
+## 5. Experimental Setup
+
+### Model Architectures
+
+All backbones are ImageNet-pretrained and used without fine-tuning; Grad-CAM is
+computed at the last convolutional layer before global pooling.
+
+| Model | Parameters (M) | Grad-CAM Layer | Input Size |
+|---|---|---|---|
+| ResNet152 | 60.2 | `conv5_block3_out` | 224 × 224 |
+| DenseNet201 | 20.2 | `conv5_block32_concat` | 224 × 224 |
+| Xception | 22.9 | `block14_sepconv2_act` | 299 × 299 |
+
+*Table 1: Model architectures and Grad-CAM configuration.*
+
+### Datasets
+
+| Dataset | Classes | Training | Validation | Test |
+|---|---|---|---|---|
+| MS COCO (2017) | 80 | 118,287 | 5,000 | 20,000 |
+| CAMELYON16 (patches) | 2 | 64,000 | 8,000 | 8,000 |
+
+*Table 2: Dataset statistics.*
+
+### Evaluation Metrics
+
+- **L2 difference** — pixel-wise Euclidean distance between two heatmaps; **lower = more stable**.
+
+$$L2 = \sqrt{\sum_{i}\left(H^{orig}_i - H^{trans}_i\right)^2}$$
+
+- **AUC-ROC** — how well the normalized heatmap separates the object/tumor region from
+  background against a binary mask; **higher = better localization** (reported as
+  $\mu \pm \sigma$ across images).
+
+## 6. Experiments
+
+### Experiment 1 — Single-Image Transformation Consistency
+
+Apply each of the four transformations to a single image (per backbone), inverse-align
+every heatmap, and average. Sensitivity is measured by the L2 difference across
+transformation magnitudes.
+
+### Experiment 2 — Class-Specific Evaluation
+
+Repeat the analysis for two object categories ("Dog", "Cat") across all three
+backbones to test whether robustness is class-dependent.
+
+### Experiment 3 — Dataset-Level Evaluation (MS COCO)
+
+Scale up to MS COCO (80 classes with pixel-level masks). Binary ground-truth masks are
+built from COCO polygon/RLE annotations, and each backbone's Baseline is compared
+against the four invariant variants by L2 and AUC-ROC.
+
+| Model | Baseline AUC | Rotation-inv (L2 / AUC) | Zoom-inv (L2 / AUC) | Shift-X-inv (L2 / AUC) | Shift-Y-inv (L2 / AUC) |
+|---|---|---|---|---|---|
+| ResNet152 | 0.832 ± 0.021 | 0.25 / 0.851 ± 0.017 | 0.22 / 0.871 ± 0.015 | 0.18 / 0.881 ± 0.016 | 0.20 / 0.870 ± 0.017 |
+| DenseNet201 | 0.846 ± 0.019 | 0.21 / 0.874 ± 0.018 | 0.19 / 0.892 ± 0.013 | 0.15 / 0.901 ± 0.014 | 0.17 / 0.895 ± 0.011 |
+| Xception | 0.827 ± 0.023 | 0.29 / 0.843 ± 0.019 | 0.26 / 0.862 ± 0.018 | 0.22 / 0.849 ± 0.020 | 0.23 / 0.844 ± 0.021 |
+
+*Table 3: MS COCO — Baseline vs. transformation-invariant Grad-CAM (L2 / AUC (µ ± σ);
+lower L2 and higher AUC are better; Baseline L2 = 0 by definition). Every invariant
+variant raises AUC over Baseline, with shift-X and zoom giving the most consistent gains.*
+
+### Experiment 4 — Histopathology Image Evaluation (CAMELYON16)
+
+Evaluate **zoom-invariant** Grad-CAM on histopathology patches (96 × 96 px; a patch is
+labeled tumor if its central 32 × 32 region contains tumor tissue). For each patch,
+Grad-CAM maps across zoom levels are inverse-aligned and averaged; stability (L2) and
+faithfulness (AUC-ROC vs. tumor masks) are reported per backbone.
+
+| Model | Setting | L2 Difference | AUC (µ ± σ) |
+|---|---|---|---|
+| ResNet152 | Baseline (1.0×) | 0 | 0.85 ± 0.018 |
+| ResNet152 | Averaged | 0.21 | 0.89 ± 0.012 |
+| DenseNet201 | Baseline (1.0×) | 0 | 0.87 ± 0.016 |
+| DenseNet201 | Averaged | 0.18 | 0.91 ± 0.010 |
+| Xception | Baseline (1.0×) | 0 | 0.83 ± 0.020 |
+| Xception | Averaged | 0.24 | 0.88 ± 0.015 |
+
+*Table 4: CAMELYON16 — zoom-invariance evaluation. Averaging raises AUC for all three
+backbones at a small L2 cost.*
+
+## 7. Results & Key Findings
+
+- Grad-CAM is **measurably sensitive** to rotation, zoom, and shifts.
+- **Inverse-alignment + averaging materially improves stability** — lower L2 and higher AUC than Baseline.
+- Gains hold **across all three backbones and both domains** (natural and medical images).
+- Achieved with **no model retraining**.
+
+## 8. Conclusion
+
+This work quantified Grad-CAM's transformation sensitivity, proposed an invariant
+heatmap pipeline based on inverse alignment and averaging, and demonstrated improved
+stability (lower L2, better AUC) across architectures and datasets — a practical step
+toward trustworthy, consistent visual explanations.
+
+## 9. Future Directions
+
+- Extend the invariance pipeline to other XAI methods.
+- Explore joint training with invariance regularization.
+- Generalize to detection, segmentation, and multimodal tasks.
+- Create standardized robustness benchmarks and user studies.
+
+## 10. Repository Structure
 
 ```
 transformation-invariant-gradcam/
-├── README.md                  # this file
-├── LICENSE                    # All rights reserved (see below)
-├── CITATION.cff               # how to cite this work
-├── GITHUB_SETUP.md            # how to push this repo to GitHub
-├── .gitignore
-├── requirements.txt           # Python dependencies (TensorFlow/Keras stack)
-│
-├── docs/                      # the thesis and defense materials
-│   ├── Thesis_Paper.pdf       # full thesis (130 pages)
-│   ├── Thesis_Presentation.pdf# defense slides (47 slides)
-│   └── figures/               # exported figures (optional)
-│
-├── src/                       # reconstructed library code
-│   ├── config.py              # paths, model configs, transform ranges
-│   ├── data/
-│   │   ├── preprocessing.py   # load / resize / canonicalize per backbone
-│   │   └── datasets.py        # MS COCO & CAMELYON16 loaders + mask handling
-│   ├── models/
-│   │   └── backbones.py       # ResNet152 / DenseNet201 / Xception + target layers
-│   ├── transforms/
-│   │   └── geometric.py       # rotation, zoom, shift (+ inverse for realignment)
-│   ├── gradcam/
-│   │   ├── gradcam.py         # core Grad-CAM
-│   │   └── invariant.py       # transformation-invariant Grad-CAM + averaging
-│   ├── metrics/
-│   │   └── metrics.py         # L2 difference, AUC-ROC
-│   └── visualization/
-│       └── heatmaps.py        # overlays and sensitivity plots
-│
-├── experiments/               # one script per thesis experiment
-│   ├── exp1_single_image_consistency.py    # Exp 1: single-image consistency
-│   ├── exp2_class_specific.py              # Exp 2: class-specific evaluation
-│   ├── exp3_dataset_level.py               # Exp 3: dataset-level (MS COCO)
-│   ├── exp4_histopathology_evaluation.py   # Exp 4: histopathology (CAMELYON16)
-│   └── configs/               # experiment config files
-│
-├── scripts/
-│   └── run_experiment.py      # CLI entry point
-│
-├── notebooks/                 # exploratory notebooks (optional)
-│
-├── data/                      # datasets are NOT committed — see data/README.md
-│   ├── raw/
-│   └── processed/
-│
-└── results/                   # generated figures and tables (git-ignored)
-    ├── figures/
-    └── tables/
+├── README.md        # this file
+├── assets/          # figures used in this README
+├── docs/            # thesis paper + defense presentation
+├── src/             # Grad-CAM, invariant framework, transforms, metrics, models
+├── experiments/     # exp1 single-image · exp2 class-specific · exp3 MS COCO · exp4 histopathology
+├── scripts/         # run_experiment.py (CLI)
+├── data/            # datasets not committed — see data/README.md
+└── results/         # generated figures and tables
 ```
 
-## Setup
-
 ```bash
-# Python 3.10+ recommended
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-A GPU with CUDA is strongly recommended for running the CNN backbones over full
-datasets.
-
-## Datasets
-
-Datasets are **not** included in this repository (size and licensing). See
-[`data/README.md`](data/README.md) for how to obtain MS COCO 2017 and CAMELYON16
-and the folder layout the code expects.
-
-## Experiments
-
-The thesis runs **four** experiments, one script each:
-
-1. **Single-Image Transformation Consistency** (`exp1`) — sweep one transform over a
-   single image and measure heatmap drift (L2) vs. transformation magnitude.
-2. **Class-Specific Evaluation** (`exp2`) — aggregate transformation sensitivity per
-   class to see which categories are most fragile.
-3. **Dataset-Level Evaluation** (`exp3`) — MS COCO (80 classes, instance masks);
-   baseline vs. all four invariant variants scored by AUC-ROC (faithfulness) and L2.
-4. **Histopathology Image Evaluation** (`exp4`) — CAMELYON16 patches; **zoom-invariant**
-   Grad-CAM, reporting L2 stability and per-patch AUC-ROC (mean ± std) against tumor
-   masks (reconstructs Table 4.5).
-
-## Usage
-
-Once the skeletons are filled in, experiments are launched through the CLI:
-
-```bash
-# Exp 1 - single-image consistency: sweep one transform and plot L2 vs. magnitude
 python scripts/run_experiment.py exp1 --model resnet152 --image path/to/img.jpg --transform rotation
-
-# Exp 2 - class-specific effects across a set of images
-python scripts/run_experiment.py exp2 --model densenet201 --dataset coco
-
-# Exp 3 - dataset-level on MS COCO: baseline vs. invariant variants (AUC-ROC + L2)
-python scripts/run_experiment.py exp3 --model xception
-
-# Exp 4 - histopathology on CAMELYON16: zoom-invariant Grad-CAM (L2 + AUC-ROC)
-python scripts/run_experiment.py exp4 --model resnet152
 ```
-
-## Results
-
-Figures and tables produced by the experiments are written to `results/` (ignored by
-git so large artifacts stay out of history). The definitive results are the ones
-reported in `docs/Thesis_Paper.pdf`.
-
-## Citation
-
-If you reference this work, please cite the thesis (see [`CITATION.cff`](CITATION.cff)):
-
-> Roy, E. (2025). *Transformation-Invariance Properties of Grad-CAM in Convolutional
-> Neural Networks* [Master's thesis, Ontario Tech University].
-
-## License
-
-**All rights reserved.** See [`LICENSE`](LICENSE). The thesis, presentation, and code
-may not be reused or redistributed without the author's written permission.
 
 ---
 
-*Reconstructed repository scaffold. Update the author name, GitHub handle, year, and
-any `TODO` markers to match your own details before publishing.*
+## About This Project
+
+This work originated as my MSc thesis at **Ontario Tech University**, developed under
+the supervision of **Professor Mehran Ebrahimi**.
+
+Part of this project has been accepted as a Poster presentation at the Conference on
+Vision and Intelligent Systems (CVIS 2024), University of Waterloo.
+Link: [https://github.com/emonroy7/CVIS2024/blob/main/poster.pdf](https://github.com/emonroy7/CVIS2024/blob/main/poster.pdf)
+
+My thesis/dissertation/project has been published to the Library's institutional
+repository eScholar.
+URI: [https://hdl.handle.net/10155/2057](https://hdl.handle.net/10155/2057)

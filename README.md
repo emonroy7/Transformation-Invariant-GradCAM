@@ -35,57 +35,78 @@ zoom-, and shift-invariant heatmaps — **without retraining the model**.
 
 ## 4. Methodology
 
-Every transformation family follows the same recipe: **transform** the input,
-compute **Grad-CAM**, **inverse-transform** the heatmap back to the original frame,
-and **average** the aligned maps into a single invariant explanation.
+The proposed framework transforms the input, computes Grad-CAM on each transformed
+view, inverse-aligns every heatmap back to the original coordinate frame, and averages
+the aligned maps into a single, transformation-invariant explanation. It is applied
+independently to four transformation families.
+
+<p align="center">
+  <img src="assets/fig3_methodology_overview.jpg" alt="Proposed methodology overview" width="920">
+  <br>
+  <em>Figure 3: Overview of the proposed methodology — an image is pre-processed and
+  transformed (rotation, zoom, shift-X, shift-Y), passed through a CNN backbone,
+  explained with Grad-CAM, inverse-transformed back to the original frame, and
+  averaged to yield rotation-, zoom-, and shift-invariant heatmaps.</em>
+</p>
 
 ### 4.1 Rotation-Invariant Grad-CAM
 
-Rotate by $\theta_i \in [-180^\circ, +180^\circ]$ in $30^\circ$ steps, compute
-Grad-CAM, rotate the map back by $-\theta_i$, and average:
+For each angle $\theta_i \in [-180^\circ, +180^\circ]$ at $30^\circ$ increments,
+rotate the original image, compute Grad-CAM, rotate the resulting map back by
+$-\theta_i$, and average:
 
-$$H_{rot\text{-}inv} = \frac{1}{N_\theta}\sum_{i=1}^{N_\theta} \text{Rotate}\big(\text{GradCAM}(\text{Rotate}(I_{orig}, \theta_i)),\, -\theta_i\big)$$
+$$I^{i}_{rot} = \text{Rotate}(I_{orig}, \theta_i)$$
 
-<p align="center">
-  <img src="assets/fig4_rotation_invariant.jpg" alt="Rotation-invariant Grad-CAM" width="900">
-  <br><em>Figure 2: Rotation-Invariant Grad-CAM workflow.</em>
-</p>
+$$H^{i}_{rot} = \text{GradCAM}(I^{i}_{rot})$$
+
+$$H^{i}_{realign} = \text{Rotate}(H^{i}_{rot}, -\theta_i)$$
+
+$$H_{rot\text{-}inv} = \frac{1}{N_\theta}\sum_{i=1}^{N_\theta} H^{i}_{realign}, \quad \text{where } N_\theta = \text{total number of rotation angles}$$
+
 
 ### 4.2 Zoom-Invariant Grad-CAM
 
-Zoom by $Z_i \in \{0.67, \dots, 1.5\}$, compute Grad-CAM, rescale the map to the
-original resolution, and average:
+For each zoom factor $Z_i \in \{0.67, 0.71, 0.77, 0.83, 0.91, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5\}$,
+resize the image (bilinear interpolation with padding/cropping to preserve the field
+of view), compute Grad-CAM, rescale the map to the original resolution, and average:
 
-$$H_{zoom\text{-}inv} = \frac{1}{N_z}\sum_{i=1}^{N_z} \text{Zoom}\big(\text{GradCAM}(\text{Zoom}(I_{orig}, Z_i)),\, \text{orig\_size}\big)$$
+$$I^{i}_{zoom} = \text{Zoom}(I_{orig}, Z_i)$$
 
-<p align="center">
-  <img src="assets/fig5_zoom_invariant.jpg" alt="Zoom-invariant Grad-CAM" width="900">
-  <br><em>Figure 3: Zoom-Invariant Grad-CAM workflow.</em>
-</p>
+$$H^{i}_{zoom} = \text{GradCAM}(I^{i}_{zoom})$$
+
+$$H^{i}_{rescale} = \text{Zoom}(H^{i}_{zoom}, \text{original size})$$
+
+$$H_{zoom\text{-}inv} = \frac{1}{N_z}\sum_{i=1}^{N_z} H^{i}_{rescale}, \quad \text{where } N_z = \text{total number of zoom factors}$$
+
+
+
 
 ### 4.3 Shift-X-Invariant Grad-CAM
 
-Shift horizontally by $P_x \in [-180, +180]$ px (cyclic roll), compute Grad-CAM,
-shift the map back by $-P_x$, and average:
+For each integer pixel offset $P_x \in [-180, +180]$, apply a cyclic (roll) horizontal
+shift, compute Grad-CAM, shift the map back by $-P_x$, and average:
 
-$$H_{shiftX\text{-}inv} = \frac{1}{N_x}\sum_{x} \text{Shift}_x\big(\text{GradCAM}(\text{Shift}_x(I_{orig}, P_x)),\, -P_x\big)$$
+$$I^{x}_{shift} = \text{Shift}_x(I_{orig}, P_x)$$
 
-<p align="center">
-  <img src="assets/fig6_shiftx_invariant.jpg" alt="Shift-X-invariant Grad-CAM" width="900">
-  <br><em>Figure 4: Shift-X-Invariant Grad-CAM workflow.</em>
-</p>
+$$H^{x}_{shift} = \text{GradCAM}(I^{x}_{shift})$$
+
+$$H^{x}_{realign} = \text{Shift}_x(H^{x}_{shift}, -P_x)$$
+
+$$H_{shiftX\text{-}inv} = \frac{1}{N_x}\sum_{x} H^{x}_{realign}, \quad \text{where } N_x = \text{total number of shifted pixels on the x-axis}$$
+
 
 ### 4.4 Shift-Y-Invariant Grad-CAM
 
-Shift vertically by $P_y \in [-180, +180]$ px (cyclic roll), compute Grad-CAM,
-shift the map back by $-P_y$, and average:
+Analogously, for each integer pixel offset $P_y \in [-180, +180]$, apply a cyclic
+vertical shift, compute Grad-CAM, shift the map back by $-P_y$, and average:
 
-$$H_{shiftY\text{-}inv} = \frac{1}{N_y}\sum_{y} \text{Shift}_y\big(\text{GradCAM}(\text{Shift}_y(I_{orig}, P_y)),\, -P_y\big)$$
+$$I^{y}_{shift} = \text{Shift}_y(I_{orig}, P_y)$$
 
-<p align="center">
-  <img src="assets/fig7_shifty_invariant.jpg" alt="Shift-Y-invariant Grad-CAM" width="900">
-  <br><em>Figure 5: Shift-Y-Invariant Grad-CAM workflow.</em>
-</p>
+$$H^{y}_{shift} = \text{GradCAM}(I^{y}_{shift})$$
+
+$$H^{y}_{realign} = \text{Shift}_y(H^{y}_{shift}, -P_y)$$
+
+$$H_{shiftY\text{-}inv} = \frac{1}{N_y}\sum_{y} H^{y}_{realign}, \quad \text{where } N_y = \text{total number of shifted pixels on the y-axis}$$
 
 ### Overall Pipeline
 

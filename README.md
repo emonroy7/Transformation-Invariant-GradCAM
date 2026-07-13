@@ -1,4 +1,4 @@
-# Transformation-Invariance Properties of Grad-CAM in Explainable AI(XAI)
+# Transformation-Invariant Explainable AI (XAI)
 
 ---
 
